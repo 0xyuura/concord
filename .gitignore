@@ -1,0 +1,7 @@
+node_modules
+dist
+SUBMISSION.md
+.gstack
+__pycache__/
+*.pyc
+tsconfig.tsbuildinfo
