@@ -5,3 +5,5 @@ SUBMISSION.md
 __pycache__/
 *.pyc
 tsconfig.tsbuildinfo
+
+.vercel

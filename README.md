@@ -2,7 +2,7 @@
 
 **A quiz answer key held on chain, that learns what a right answer looks like.**
 
-Live app: **https://0xyuura.github.io/concord/** (also on Vercel, see below)
+Live app: **https://concord-phi.vercel.app** and **https://0xyuura.github.io/concord/**
 Intelligent Contract: [`0x4C95B77f8D6CF7F3EC412aAaB6EFed5b92343FD3`](https://explorer-bradbury.genlayer.com/address/0x4C95B77f8D6CF7F3EC412aAaB6EFed5b92343FD3) on GenLayer Testnet Bradbury
 
 ![Concord reading the answer key from Bradbury](preview.png)
