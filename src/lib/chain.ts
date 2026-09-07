@@ -8,21 +8,10 @@
 import { createClient } from "genlayer-js";
 import { testnetBradbury } from "genlayer-js/chains";
 import { TransactionStatus, type CalldataEncodable } from "genlayer-js/types";
+import { rawProvider } from "./wallet";
 
 export const CONTRACT = "0x4C95B77f8D6CF7F3EC412aAaB6EFed5b92343FD3";
 export const EXPLORER = `https://explorer-bradbury.genlayer.com/address/${CONTRACT}`;
-
-type Eth = { request: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
-
-export function hasWallet(): boolean {
-  return typeof window !== "undefined" && Boolean((window as { ethereum?: Eth }).ethereum);
-}
-
-function ethereum(): Eth {
-  const eth = (window as { ethereum?: Eth }).ethereum;
-  if (!eth) throw new Error("No injected wallet found.");
-  return eth;
-}
 
 /** Read only. No account, so no wallet prompt and no chain switch. */
 function readClient() {
@@ -33,28 +22,60 @@ function writeClient(account: string) {
   return createClient({
     chain: testnetBradbury,
     account: account as never,
-    provider: ethereum() as never,
+    provider: rawProvider() as never,
   });
 }
 
-export async function connect(): Promise<string> {
-  const accounts = (await ethereum().request({
-    method: "eth_requestAccounts",
-  })) as string[];
-  if (!accounts?.length) throw new Error("Wallet returned no account.");
-  return accounts[0];
+/**
+ * Bradbury rate limits, routinely and hard, and a burst of view calls on page
+ * load is exactly the shape it pushes back on. A rejected read is retried with
+ * a growing pause; anything that is not a rate limit is rethrown immediately,
+ * because retrying a genuine contract error just delays the message.
+ */
+function isRateLimit(err: unknown): boolean {
+  const text = err instanceof Error ? err.message : String(err);
+  return /rate limit|exceeds defined limit|429|too many requests/i.test(text);
 }
+
+const wait = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 async function read<T>(
   functionName: string,
   args: CalldataEncodable[] = [],
 ): Promise<T> {
-  const raw = await readClient().readContract({
-    address: CONTRACT as never,
-    functionName,
-    args,
-  });
-  return raw as T;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const raw = await readClient().readContract({
+        address: CONTRACT as never,
+        functionName,
+        args,
+      });
+      return raw as T;
+    } catch (err) {
+      lastError = err;
+      if (!isRateLimit(err)) throw err;
+      await wait(600 * 2 ** attempt);
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Runs the tasks a few at a time instead of all at once. Ten questions fired in
+ * one `Promise.all` is a burst the node answers with a rate limit often enough
+ * to matter, and the whole page load then fails on the retry budget. Three at a
+ * time is barely slower and is what stopped it.
+ */
+async function inWaves<T>(
+  tasks: (() => Promise<T>)[],
+  width = 3,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < tasks.length; i += width) {
+    out.push(...(await Promise.all(tasks.slice(i, i + width).map((t) => t()))));
+  }
+  return out;
 }
 
 export interface QuestionRow {
@@ -70,6 +91,8 @@ export interface RulingRow {
   answer: string;
   verdict: boolean;
   reason: string;
+  /** The address that paid for the round. Lets a visitor find their own. */
+  asked_by: string;
 }
 
 /**
@@ -83,8 +106,8 @@ export async function loadQuestions(): Promise<QuestionRow[]> {
   const ids = Object.keys(byId).sort(
     (a, b) => Number(a.replace(/\D/g, "")) - Number(b.replace(/\D/g, "")),
   );
-  const rows = await Promise.all(
-    ids.map(async (id) => {
+  const rows = await inWaves(
+    ids.map((id) => async () => {
       const detail = JSON.parse(await read<string>("get_question", [id])) as {
         prompt: string;
         canonical: string;
@@ -103,8 +126,36 @@ export async function loadQuestions(): Promise<QuestionRow[]> {
   return rows;
 }
 
+/**
+ * The feed, enriched with who paid for each round.
+ *
+ * `recent_rulings` returns the verdict and the reason but not the asker, while
+ * `get_ruling` returns all three for one row. Both read the same stored record,
+ * so the address is already on chain and nothing here invents it. Fetching it
+ * per row costs a handful of extra view calls and avoids redeploying purely to
+ * widen one serialiser, which would have cost the live ruling history and left
+ * the source in this repo no longer matching the deployed contract.
+ *
+ * A row whose lookup fails keeps its verdict and reason and simply loses the
+ * attribution line, because a missing byline is a far better outcome than a
+ * feed that refuses to render.
+ */
 export async function loadRulings(limit = 12): Promise<RulingRow[]> {
-  return JSON.parse(await read<string>("recent_rulings", [limit])) as RulingRow[];
+  const rows = JSON.parse(
+    await read<string>("recent_rulings", [limit]),
+  ) as RulingRow[];
+  return inWaves(
+    rows.map((row) => async () => {
+      try {
+        const full = JSON.parse(
+          await read<string>("get_ruling", [row.question_id, row.answer]),
+        ) as { asked_by?: string };
+        return { ...row, asked_by: full.asked_by ?? "" };
+      } catch {
+        return { ...row, asked_by: "" };
+      }
+    }),
+  );
 }
 
 export async function rulingCount(): Promise<number> {

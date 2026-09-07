@@ -125,6 +125,46 @@ The refusal is the more interesting of the two. The model was asked a narrow
 question and gave the conservative answer the prompt asks for, and the key did
 not widen to swallow a near miss.
 
+## What the wallet is actually for
+
+Reading asks nothing of you. The key, every ruling, and the reasoning behind
+each one are public state on a public chain, so the page loads them with a
+client that has no account attached and never prompts.
+
+A wallet is asked for at one moment: sending a phrasing to the validators,
+because that writes to the contract and somebody has to pay for the round. The
+app therefore tells you, before you press anything, whether that moment can
+succeed:
+
+| State | What the page does |
+| --- | --- |
+| No injected wallet | says so plainly, explains that everything else still works, links to one |
+| Wallet present, not connected | offers to connect, and says connecting unlocks nothing you cannot already see |
+| Connected, wrong network | the chip turns red, and the send button is replaced by a switch button that adds Bradbury if the wallet has never seen it |
+| Connected, no GEN | the balance turns red and the send button is replaced by a link to the faucet |
+| Connected, funded, on Bradbury | the send button, and only then |
+
+It also survives you changing your mind elsewhere. `accountsChanged` and
+`chainChanged` are both watched, so switching account or network in another tab
+updates the page instead of leaving a button that cannot possibly work.
+
+The panel lists every ruling this address has paid for, matched against the
+`asked_by` the contract stored with each one. That is read back from chain
+state, not from anything this browser remembers.
+
+## Motion
+
+Motion here carries information or it does not ship. The rail across the top
+says how far through a long page you are. The reveal says a block is new. The
+counters count because they are live readings from the contract rather than
+printed numbers, and they always land exactly on the value rather than on an
+eased approximation of it.
+
+Everything has a `prefers-reduced-motion` path, and every one of those paths
+lands on the finished state. That matters more than it sounds: a reveal that
+is skipped rather than completed would leave the page blank for exactly the
+people who asked for less movement.
+
 ## Layout
 
 ```
@@ -134,6 +174,9 @@ tests/_stub.py                 minimal SDK stub so the contract imports under CP
 src/lib/answerkey.ts           the client mirror of the grading functions
 src/lib/answerkey.test.ts      20 tests, sharing the contract's own case table
 src/lib/chain.ts               genlayer-js wiring, reads without a wallet
+src/lib/wallet.ts              the injected provider: account, network, balance
+src/lib/wallet.test.ts         6 tests over the pure formatting the UI decides on
+src/lib/motion.ts              reveal, progress, scrollspy, counters, pointer light
 src/App.tsx                    the app
 docs/seed.py                   one off script that seeded the question set
 ```
@@ -143,7 +186,7 @@ docs/seed.py                   one off script that seeded the question set
 ```bash
 npm install
 npm run dev          # http://localhost:5210
-npm test             # 20 client tests
+npm test             # 26 client tests
 
 python -m unittest discover -s tests    # 41 contract tests
 genvm-lint check contracts/answer_key.py
@@ -170,3 +213,11 @@ wallet on Bradbury with a little GEN for gas.
 - **Bradbury is intermittent.** Seeding this question set took retries, one
   `compile` style round came back `LEADER_TIMEOUT`, and the node rate limits
   transactions under load.
+- **The feed costs one extra view call per row.** `recent_rulings` returns the
+  verdict and the reason but not the asker, while `get_ruling` returns all
+  three for a single row, so the client fetches the attribution per row. Both
+  read the same stored record and nothing is invented client side. Widening the
+  batch serialiser would have meant redeploying, which would have thrown away
+  the live ruling history and left the source in this repo no longer matching
+  the contract at the address above. Keeping those two identical was worth more
+  than saving the calls.
