@@ -1,9 +1,13 @@
-// Motion primitives.
+// The motion this app needs that Framer does not already give it.
 //
-// Every hook here checks `prefers-reduced-motion` first and degrades to the
-// finished state rather than to a broken one. A reveal that never fires because
-// the observer was skipped would leave the page blank, so the reduced path sets
-// the end state immediately and stops.
+// Reveal, scroll progress and gesture states all moved to `motion/react`, which
+// does them better and in fewer lines. What is left here is the small stuff
+// with no library equivalent: a counter that lands exactly on its target, a
+// sticky-header threshold, a scrollspy that survives the sections not existing
+// yet, and a pointer light driven by CSS custom properties.
+//
+// Every hook checks `prefers-reduced-motion` and degrades to the finished
+// state rather than to a broken one.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -12,73 +16,6 @@ export function reducedMotion(): boolean {
     typeof window !== "undefined" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
-}
-
-/**
- * Reveals anything carrying `data-reveal` as it enters the viewport, by adding
- * `.in`. Delegated from one observer rather than a hook per element so that
- * cards rendered later, after the chain reads land, are picked up by rerunning
- * with the new dependency instead of needing their own wiring.
- */
-export function useRevealObserver(deps: unknown[]): void {
-  useEffect(() => {
-    const nodes = Array.from(
-      document.querySelectorAll<HTMLElement>("[data-reveal]:not(.in)"),
-    );
-    if (!nodes.length) return;
-
-    if (reducedMotion()) {
-      for (const node of nodes) node.classList.add("in");
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          // Intersecting is the ordinary case. The second test covers the one
-          // that bit us in QA: an element the reader is already past, because
-          // they deep linked to an anchor or the browser restored a scroll
-          // position. Such an element never intersects, so without this it
-          // would sit at opacity 0 forever, above the fold and invisible.
-          const passed = entry.boundingClientRect.bottom <= 0;
-          if (!entry.isIntersecting && !passed) continue;
-          entry.target.classList.add("in");
-          observer.unobserve(entry.target);
-        }
-      },
-      // Fires a little before the element is fully on screen, so the motion is
-      // finishing as the reader arrives rather than starting.
-      { threshold: 0.12, rootMargin: "0px 0px -8% 0px" },
-    );
-    for (const node of nodes) observer.observe(node);
-    return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-}
-
-/** How far down the document we are, 0 to 1, for the progress rail. */
-export function useScrollProgress(): number {
-  const [progress, setProgress] = useState(0);
-  useEffect(() => {
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
-      const scrollable = document.body.scrollHeight - window.innerHeight;
-      setProgress(scrollable > 0 ? Math.min(1, window.scrollY / scrollable) : 0);
-    };
-    const onScroll = () => {
-      if (!frame) frame = requestAnimationFrame(measure);
-    };
-    measure();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      if (frame) cancelAnimationFrame(frame);
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, []);
-  return progress;
 }
 
 /** True once the page has scrolled past `after`, for the condensing masthead. */

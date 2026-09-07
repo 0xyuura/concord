@@ -694,68 +694,55 @@ html {
   scroll-margin-top: 92px;
 }
 
-/* ---------- the drifting field ---------- */
+/* ---------- the ambient field ---------- */
 
-/* Three very large, very soft lights behind everything. Fixed, blurred, and
-   slow enough to read as depth rather than as an effect. They sit under the
-   halftone so the texture still reads across them. */
-.aurora {
+/* One soft light, not three, and its colour is the accent of the question
+   currently being worked on. That makes the background a status readout rather
+   than decoration, which is the only reason it earns the pixels. React drives
+   the colour; this file owns the shape. */
+.field {
   position: fixed;
-  inset: 0;
+  inset: -10% -10% -20% -10%;
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
-}
-
-.aurora .blob {
-  position: absolute;
-  display: block;
-  border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.3;
   will-change: transform;
 }
 
-.aurora .b1 {
-  width: 46vmax;
-  height: 46vmax;
+.field-core {
+  position: absolute;
+  top: -22vmax;
+  right: -8vmax;
+  width: 78vmax;
+  height: 78vmax;
+  border-radius: 50%;
+  filter: blur(120px);
+  background-color: rgba(94, 220, 246, 0.3);
+}
+
+/* A second light, low and on the other side, so the page has a direction to it
+   instead of one glow in the middle. It carries the same question colour at
+   lower weight, which is what keeps the two reading as one lamp rather than as
+   two unrelated decorations. */
+.field-aux {
+  position: absolute;
+  bottom: -24vmax;
   left: -12vmax;
-  top: -14vmax;
-  background: radial-gradient(circle, var(--cyan), transparent 66%);
-  animation: drift-a 26s ease-in-out infinite;
+  width: 62vmax;
+  height: 62vmax;
+  border-radius: 50%;
+  filter: blur(130px);
+  background-color: rgba(214, 86, 240, 0.18);
 }
 
-.aurora .b2 {
-  width: 40vmax;
-  height: 40vmax;
-  right: -12vmax;
-  top: 16vh;
-  background: radial-gradient(circle, var(--magenta), transparent 66%);
-  animation: drift-b 32s ease-in-out infinite;
-}
-
-.aurora .b3 {
-  width: 38vmax;
-  height: 38vmax;
-  left: 26vw;
-  bottom: -18vmax;
-  background: radial-gradient(circle, var(--violet), transparent 66%);
-  animation: drift-c 38s ease-in-out infinite;
-}
-
-@keyframes drift-a {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(7vw, 5vh, 0) scale(1.14); }
-}
-
-@keyframes drift-b {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1.08); }
-  50% { transform: translate3d(-8vw, 8vh, 0) scale(0.92); }
-}
-
-@keyframes drift-c {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(0.95); }
-  50% { transform: translate3d(6vw, -7vh, 0) scale(1.16); }
+/* A cold floor, so the page does not just fade to flat black at the bottom. */
+.field-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 52vh;
+  background: linear-gradient(to top, rgba(162, 116, 255, 0.14), transparent);
 }
 
 /* ---------- reading progress ---------- */
@@ -880,52 +867,17 @@ html {
   100% { box-shadow: 0 0 0 0 rgba(94, 220, 246, 0); }
 }
 
-/* ---------- entrance and reveal ---------- */
-
-/* The hero animates on load on an explicit per element delay, so the page
-   assembles top to bottom instead of appearing all at once. */
-.rise {
-  animation: rise 0.66s cubic-bezier(0.16, 0.84, 0.32, 1) both;
-  animation-delay: var(--d, 0ms);
-}
-
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 22px, 0);
-    filter: blur(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-    filter: none;
-  }
-}
-
-/* Everything below the fold waits for the observer in motion.ts. */
-[data-reveal] {
-  opacity: 0;
-  transform: translate3d(0, 26px, 0);
-  transition: opacity 0.62s cubic-bezier(0.16, 0.84, 0.32, 1),
-    transform 0.62s cubic-bezier(0.16, 0.84, 0.32, 1);
-  transition-delay: var(--d, 0ms);
-  will-change: opacity, transform;
-}
-
-[data-reveal].in {
-  opacity: 1;
-  transform: none;
-}
-
 /* ---------- hover physics ---------- */
 
-.lift {
-  transition: transform 0.24s cubic-bezier(0.2, 0.7, 0.3, 1),
-    border-color 0.24s ease, box-shadow 0.24s ease;
+/* Framer animates the lift itself; the border and shadow stay in CSS because
+   they are colour, not motion. */
+.card,
+.step {
+  transition: border-color 0.24s ease, box-shadow 0.24s ease;
 }
 
-.lift:hover {
-  transform: translateY(-4px);
+.card:hover,
+.step:hover {
   border-color: var(--c, var(--cyan));
   box-shadow: 0 18px 40px -22px var(--c, var(--cyan));
 }
@@ -1004,40 +956,6 @@ html {
 .chip:active,
 .qtab:active {
   transform: translateY(1px) scale(0.985);
-}
-
-/* ---------- content transitions ---------- */
-
-/* The verdict slab and the escalate panel are keyed on their content, so React
-   remounts them and this plays every time the verdict actually changes. */
-.pop {
-  animation: pop 0.4s cubic-bezier(0.16, 0.84, 0.32, 1) both;
-}
-
-@keyframes pop {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 10px, 0) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.swap {
-  animation: swap 0.42s cubic-bezier(0.16, 0.84, 0.32, 1) both;
-}
-
-@keyframes swap {
-  from {
-    opacity: 0;
-    transform: translate3d(-10px, 0, 0);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 
 .stat b {
@@ -1346,27 +1264,14 @@ html {
   html {
     scroll-behavior: auto;
   }
-  .aurora .blob,
   .dot,
   .pending .bar::after,
   .loading .scan::after {
     animation: none;
   }
-  .rise,
-  .pop,
-  .swap {
-    animation: none;
-    opacity: 1;
-    transform: none;
-    filter: none;
-  }
-  [data-reveal] {
-    opacity: 1;
-    transform: none;
+  .field-core,
+  .field-aux {
     transition: none;
-  }
-  .lift:hover {
-    transform: none;
   }
   [data-light]::before {
     display: none;
@@ -1378,5 +1283,180 @@ html {
   .navlink::after,
   .chip {
     transition: none;
+  }
+}
+
+/* ==========================================================================
+   COMPONENT LAYER
+   Pieces Framer drives: the travelling nav underline, the selected question
+   pill, and the wallet chooser.
+   ========================================================================== */
+
+/* The old CSS underline is gone; a single element now travels between items,
+   so each link only has to be a positioning context for it. */
+.navlink::after {
+  content: none;
+}
+
+.navlink > span {
+  position: relative;
+  z-index: 1;
+}
+
+.navmark {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--magenta));
+}
+
+/* Same idea on the question tabs: one pill slides to the selected one instead
+   of ten backgrounds cross-fading. */
+.qtab {
+  position: relative;
+  isolation: isolate;
+}
+
+.qtab-fill {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 999px;
+  background: var(--cyan);
+}
+
+.qtab[aria-selected="true"] {
+  background: transparent;
+  color: var(--ink);
+}
+
+.qtab-label {
+  position: relative;
+}
+
+/* ---------- wallet chip states ---------- */
+
+.btn.connect {
+  background: linear-gradient(120deg, var(--cyan), var(--violet));
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.chip.quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 7px 14px;
+  color: var(--dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.chip.quiet:hover {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+/* Discovery is a subscription, so this dot means "still listening", not
+   "connected". Different colour, slower pulse, so the two never read alike. */
+.dot.searching {
+  background: var(--dimmer);
+  animation: searching 1.6s ease-in-out infinite;
+}
+
+@keyframes searching {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* ---------- wallet chooser ---------- */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 5, 12, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.picker {
+  width: 100%;
+  max-width: 380px;
+  background: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.picker h4 {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+
+.picker p {
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1.65;
+  margin: 0 0 18px;
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.picker-row:hover:not(:disabled) {
+  border-color: var(--cyan);
+}
+
+.picker-row img {
+  border-radius: 6px;
+  flex: none;
+}
+
+/* A wallet that announced no icon still needs to occupy the same slot, or the
+   rows in the list stop lining up. */
+.picker-fallback {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--violet), var(--magenta));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.searching {
+    animation: none;
+    opacity: 0.7;
   }
 }

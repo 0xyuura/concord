@@ -5,12 +5,12 @@
 // it without owning anything. A wallet is asked for at exactly one moment, when
 // somebody wants to change that state.
 //
-// What this module adds over a bare `eth_requestAccounts` is the boring part
-// that decides whether the moment succeeds: knowing which chain the wallet is
-// actually pointed at, being able to move it to Bradbury without the user
-// hunting through settings, knowing whether they can pay for the round before
-// they press the button, and surviving the user switching accounts in another
-// tab.
+// Discovery is the part that was wrong before. Reading `window.ethereum` once,
+// during render, misses two very common cases: an extension that injects a
+// moment after first paint, and a wallet that follows EIP-6963 and announces
+// itself on an event instead of squatting on a global. Either one left the page
+// insisting there was no wallet on a machine that plainly had one. So discovery
+// here is a subscription, not a question asked once.
 
 export const CHAIN_ID = 4221;
 export const CHAIN_ID_HEX = "0x107d";
@@ -20,27 +20,110 @@ export const FAUCET_URL = "https://faucet.genlayer.com/";
 
 type Handler = (payload: never) => void;
 
-interface Eth {
+export interface Eip1193 {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
   on?: (event: string, handler: Handler) => void;
   removeListener?: (event: string, handler: Handler) => void;
   isMetaMask?: boolean;
 }
 
-export function hasWallet(): boolean {
-  return typeof window !== "undefined" && Boolean((window as { ethereum?: Eth }).ethereum);
+/** One wallet the browser is offering, however it announced itself. */
+export interface WalletOption {
+  /** Stable key. The EIP-6963 uuid when there is one, else a derived id. */
+  id: string;
+  name: string;
+  /** data: URI the wallet supplies. Absent for a bare window.ethereum. */
+  icon?: string;
+  provider: Eip1193;
 }
 
-function eth(): Eth {
-  const found = (window as { ethereum?: Eth }).ethereum;
-  if (!found) throw new Error("No injected wallet found in this browser.");
-  return found;
+interface Eip6963Detail {
+  info: { uuid: string; name: string; icon: string; rdns: string };
+  provider: Eip1193;
 }
 
-/** The wallet's own name for itself, for the label on the chip. */
-export function walletLabel(): string {
-  if (!hasWallet()) return "Wallet";
-  return eth().isMetaMask ? "MetaMask" : "Wallet";
+function legacyProvider(): Eip1193 | undefined {
+  return (window as { ethereum?: Eip1193 }).ethereum;
+}
+
+function legacyName(provider: Eip1193): string {
+  return provider.isMetaMask ? "MetaMask" : "Injected wallet";
+}
+
+/**
+ * Watches for wallets and calls back every time the set changes.
+ *
+ * Three sources, because no single one is reliable:
+ *   1. EIP-6963 announcements, which is how wallets are supposed to do it and
+ *      the only way to see past the first extension when several are installed.
+ *   2. `window.ethereum`, still the only thing some wallets set.
+ *   3. `ethereum#initialized` plus a short poll, for the extension that arrives
+ *      after React has already painted. The poll stops on its own; it is there
+ *      to cover the first second of the page, not to run forever.
+ *
+ * Returns an unsubscribe.
+ */
+export function discoverWallets(onChange: (found: WalletOption[]) => void): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const byId = new Map<string, WalletOption>();
+
+  const publish = () => onChange([...byId.values()]);
+
+  const addLegacy = () => {
+    const provider = legacyProvider();
+    if (!provider) return false;
+    // Skip when EIP-6963 already announced this exact provider object, or the
+    // same wallet would be offered to the user twice.
+    for (const option of byId.values()) {
+      if (option.provider === provider) return false;
+    }
+    const id = "injected:" + legacyName(provider);
+    if (byId.has(id)) return false;
+    byId.set(id, { id, name: legacyName(provider), provider });
+    return true;
+  };
+
+  const onAnnounce = ((event: CustomEvent<Eip6963Detail>) => {
+    const { info, provider } = event.detail;
+    if (byId.has(info.uuid)) return;
+    // Drop a legacy entry that turns out to be this same provider, so a wallet
+    // that both squats on the global and announces properly appears once.
+    for (const [key, option] of byId) {
+      if (option.provider === provider) byId.delete(key);
+    }
+    byId.set(info.uuid, {
+      id: info.uuid,
+      name: info.name,
+      icon: info.icon,
+      provider,
+    });
+    publish();
+  }) as EventListener;
+
+  window.addEventListener("eip6963:announceProvider", onAnnounce);
+  window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+  if (addLegacy()) publish();
+
+  const onInitialized = () => {
+    if (addLegacy()) publish();
+  };
+  window.addEventListener("ethereum#initialized", onInitialized);
+
+  // Covers the extension that lands a beat after first paint and fires nothing.
+  let ticks = 0;
+  const poll = window.setInterval(() => {
+    ticks += 1;
+    if (addLegacy()) publish();
+    if (ticks >= 10 || byId.size) window.clearInterval(poll);
+  }, 300);
+
+  return () => {
+    window.removeEventListener("eip6963:announceProvider", onAnnounce);
+    window.removeEventListener("ethereum#initialized", onInitialized);
+    window.clearInterval(poll);
+  };
 }
 
 export function short(address: string): string {
@@ -49,21 +132,22 @@ export function short(address: string): string {
 
 /**
  * Accounts already authorised for this origin. No prompt, so it is safe to call
- * on mount: a returning visitor sees their wallet connected without being asked
- * again, and a first time visitor sees nothing happen at all.
+ * the moment a wallet is discovered: a returning visitor sees their wallet
+ * connected without being asked again, and a first time visitor sees nothing.
  */
-export async function silentAccount(): Promise<string> {
-  if (!hasWallet()) return "";
+export async function silentAccount(provider: Eip1193): Promise<string> {
   try {
-    const accounts = (await eth().request({ method: "eth_accounts" })) as string[];
+    const accounts = (await provider.request({ method: "eth_accounts" })) as string[];
     return accounts?.[0] ?? "";
   } catch {
     return "";
   }
 }
 
-export async function connect(): Promise<string> {
-  const accounts = (await eth().request({ method: "eth_requestAccounts" })) as string[];
+export async function connect(provider: Eip1193): Promise<string> {
+  const accounts = (await provider.request({
+    method: "eth_requestAccounts",
+  })) as string[];
   if (!accounts?.length) throw new Error("The wallet returned no account.");
   return accounts[0];
 }
@@ -74,10 +158,9 @@ export async function connect(): Promise<string> {
  * permission back so the next visit starts clean rather than silently
  * reconnecting.
  */
-export async function disconnect(): Promise<void> {
-  if (!hasWallet()) return;
+export async function disconnect(provider: Eip1193): Promise<void> {
   try {
-    await eth().request({
+    await provider.request({
       method: "wallet_revokePermissions",
       params: [{ eth_accounts: {} }],
     });
@@ -86,10 +169,9 @@ export async function disconnect(): Promise<void> {
   }
 }
 
-export async function chainId(): Promise<number> {
-  if (!hasWallet()) return 0;
+export async function chainId(provider: Eip1193): Promise<number> {
   try {
-    return Number(await eth().request({ method: "eth_chainId" }));
+    return Number(await provider.request({ method: "eth_chainId" }));
   } catch {
     return 0;
   }
@@ -100,16 +182,16 @@ export async function chainId(): Promise<number> {
  * it. 4902 is the "unrecognised chain" code; anything else is the user saying
  * no, which is left to the caller to report rather than swallowed.
  */
-export async function switchToBradbury(): Promise<void> {
+export async function switchToBradbury(provider: Eip1193): Promise<void> {
   try {
-    await eth().request({
+    await provider.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: CHAIN_ID_HEX }],
     });
   } catch (err) {
     const code = (err as { code?: number })?.code;
     if (code !== 4902) throw err;
-    await eth().request({
+    await provider.request({
       method: "wallet_addEthereumChain",
       params: [
         {
@@ -154,27 +236,21 @@ export function formatGen(amount: number): string {
  * with no GEN, or to a different network, would otherwise press a button that
  * cannot possibly work and get a raw provider error for it.
  */
-export function watch(handlers: {
-  onAccount: (address: string) => void;
-  onChain: (id: number) => void;
-}): () => void {
-  if (!hasWallet() || !eth().on) return () => {};
-  const provider = eth();
+export function watch(
+  provider: Eip1193,
+  handlers: { onAccount: (address: string) => void; onChain: (id: number) => void },
+): () => void {
+  if (!provider.on) return () => {};
   const accountHandler = ((accounts: string[]) => {
     handlers.onAccount(accounts?.[0] ?? "");
   }) as unknown as Handler;
   const chainHandler = ((id: string) => {
     handlers.onChain(Number(id));
   }) as unknown as Handler;
-  provider.on?.("accountsChanged", accountHandler);
-  provider.on?.("chainChanged", chainHandler);
+  provider.on("accountsChanged", accountHandler);
+  provider.on("chainChanged", chainHandler);
   return () => {
     provider.removeListener?.("accountsChanged", accountHandler);
     provider.removeListener?.("chainChanged", chainHandler);
   };
-}
-
-/** The raw provider, for genlayer-js to sign through. */
-export function rawProvider(): unknown {
-  return eth();
 }

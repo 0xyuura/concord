@@ -2,7 +2,7 @@
 
 **A quiz answer key held on chain, that learns what a right answer looks like.**
 
-Live app: **https://0xyuura.github.io/concord/**
+Live app: **https://0xyuura.github.io/concord/** (also on Vercel, see below)
 Intelligent Contract: [`0x4C95B77f8D6CF7F3EC412aAaB6EFed5b92343FD3`](https://explorer-bradbury.genlayer.com/address/0x4C95B77f8D6CF7F3EC412aAaB6EFed5b92343FD3) on GenLayer Testnet Bradbury
 
 ![Concord reading the answer key from Bradbury](preview.png)
@@ -144,6 +144,19 @@ succeed:
 | Connected, no GEN | the balance turns red and the send button is replaced by a link to the faucet |
 | Connected, funded, on Bradbury | the send button, and only then |
 
+**Finding the wallet is the part that was wrong.** Reading `window.ethereum`
+once, during the first render, misses two very ordinary cases: an extension that
+injects a moment after first paint, and a wallet that follows **EIP-6963** and
+announces itself on an event rather than squatting on a global. Either one left
+the page insisting there was no wallet on a machine that plainly had one.
+
+Discovery is now a subscription, not a question asked once. It listens for
+`eip6963:announceProvider`, asks for announcements itself, still accepts a bare
+`window.ethereum`, and covers the first second of the page with
+`ethereum#initialized` plus a short poll that stops on its own. When more than
+one wallet answers, you choose; when exactly one does, there is no dialog,
+because a chooser with a single option is a click for nothing.
+
 It also survives you changing your mind elsewhere. `accountsChanged` and
 `chainChanged` are both watched, so switching account or network in another tab
 updates the page instead of leaving a button that cannot possibly work.
@@ -154,16 +167,29 @@ state, not from anything this browser remembers.
 
 ## Motion
 
-Motion here carries information or it does not ship. The rail across the top
-says how far through a long page you are. The reveal says a block is new. The
-counters count because they are live readings from the contract rather than
-printed numbers, and they always land exactly on the value rather than on an
-eased approximation of it.
+Built on **Motion for React** (`motion/react`, the library formerly published as
+Framer Motion). Durations and easings live in `src/lib/motionTokens.ts` so that
+thirty animations read as one system rather than thirty opinions.
+
+Motion here carries information or it does not ship:
+
+- The rail across the top says how far through a long page you are.
+- One underline travels between nav items rather than five fading in place, and
+  one pill slides between question tabs. The travel is what says these are a
+  single control and you are somewhere inside it.
+- Verdicts swap through `AnimatePresence`, so a changed answer reads as a new
+  judgement rather than as text quietly rewriting itself.
+- The counters count because they are live readings from the contract rather
+  than printed numbers, and they land exactly on the value rather than on an
+  eased approximation of it.
+- The ambient light behind the page takes the colour of the question you are
+  working on. That is the one large soft light in the design, and it is there
+  because it reports state. Three drifting coloured blobs would not have.
 
 Everything has a `prefers-reduced-motion` path, and every one of those paths
-lands on the finished state. That matters more than it sounds: a reveal that
-is skipped rather than completed would leave the page blank for exactly the
-people who asked for less movement.
+lands on the finished state. That matters more than it sounds: a reveal that is
+skipped rather than completed would leave the page blank for exactly the people
+who asked for less movement.
 
 ## Layout
 
@@ -174,9 +200,13 @@ tests/_stub.py                 minimal SDK stub so the contract imports under CP
 src/lib/answerkey.ts           the client mirror of the grading functions
 src/lib/answerkey.test.ts      20 tests, sharing the contract's own case table
 src/lib/chain.ts               genlayer-js wiring, reads without a wallet
-src/lib/wallet.ts              the injected provider: account, network, balance
+src/lib/wallet.ts              wallet discovery, account, network, balance
+src/lib/useWallet.ts           one hook holding the whole wallet state machine
 src/lib/wallet.test.ts         6 tests over the pure formatting the UI decides on
-src/lib/motion.ts              reveal, progress, scrollspy, counters, pointer light
+src/lib/motion.ts              counters, scrollspy, sticky threshold, pointer light
+src/lib/motionTokens.ts        durations and easings, so the motion reads as one system
+src/components/WalletButton.tsx  the masthead control and its four states
+src/components/WalletPicker.tsx  the chooser, for when several wallets are installed
 src/App.tsx                    the app
 docs/seed.py                   one off script that seeded the question set
 ```

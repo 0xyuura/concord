@@ -8,7 +8,7 @@
 import { createClient } from "genlayer-js";
 import { testnetBradbury } from "genlayer-js/chains";
 import { TransactionStatus, type CalldataEncodable } from "genlayer-js/types";
-import { rawProvider } from "./wallet";
+import type { Eip1193 } from "./wallet";
 
 export const CONTRACT = "0x4C95B77f8D6CF7F3EC412aAaB6EFed5b92343FD3";
 export const EXPLORER = `https://explorer-bradbury.genlayer.com/address/${CONTRACT}`;
@@ -18,11 +18,11 @@ function readClient() {
   return createClient({ chain: testnetBradbury });
 }
 
-function writeClient(account: string) {
+function writeClient(account: string, provider: Eip1193) {
   return createClient({
     chain: testnetBradbury,
     account: account as never,
-    provider: rawProvider() as never,
+    provider: provider as never,
   });
 }
 
@@ -168,11 +168,12 @@ export async function rulingCount(): Promise<number> {
  * chain rather than an optimistic guess.
  */
 export async function rule(
+  provider: Eip1193,
   account: string,
   questionId: string,
   answer: string,
 ): Promise<void> {
-  const client = writeClient(account);
+  const client = writeClient(account, provider);
   const hash = await client.writeContract({
     address: CONTRACT as never,
     functionName: "rule",
